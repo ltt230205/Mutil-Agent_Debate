@@ -21,7 +21,7 @@ def prepare_datasets(config_path: str, output_dir: str, dry_run: bool = False) -
         if dry_run:
             dataset_samples = _mock_samples(name)
         else:
-            raw = load_dataset(spec["hf_name"], split=spec.get("split", "validation"))
+            raw = _load_hf_split(spec["hf_name"], spec.get("split", "validation"))
             dataset_samples = [_canonicalize(name, row, index) for index, row in enumerate(raw)]
         dataset_samples = [s for s in dataset_samples if s.answer]
         rng = random.Random(dataset_cfg.get("selection", {}).get("seeds", [42])[0])
@@ -71,7 +71,7 @@ def _canonicalize(name: str, row: dict[str, Any], index: int) -> Sample:
     return Sample(
         sample_id=str(row.get("id", f"{name}_{index}")),
         dataset=name,
-        question=str(row.get("question", "")),
+        question=str(row.get("question") or row.get("query") or ""),
         context=str(row.get("context") or row.get("passage") or row.get("text") or ""),
         choices=[Choice(label=labels[i], text=str(text)) for i, text in enumerate(texts)],
         answer=str(answer).strip(),
@@ -97,3 +97,13 @@ def _mock_samples(name: str) -> list[Sample]:
         )
         for idx in range(5)
     ]
+
+
+def _load_hf_split(hf_name: str, split: str):
+    try:
+        return load_dataset(hf_name, split=split)
+    except RuntimeError as exc:
+        if "Dataset scripts are no longer supported" not in str(exc):
+            raise
+        data_files = f"hf://datasets/{hf_name}@refs/convert/parquet/default/{split}/*.parquet"
+        return load_dataset("parquet", data_files=data_files, split="train")

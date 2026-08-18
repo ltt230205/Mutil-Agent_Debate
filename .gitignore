@@ -34,6 +34,7 @@ outputs/raw/*
 outputs/processed/*
 outputs/tables/*
 outputs/figures/*
+outputs_real*/
 !outputs/.gitkeep
 !outputs/raw/.gitkeep
 !outputs/processed/.gitkeep

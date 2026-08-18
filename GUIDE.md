@@ -1,26 +1,28 @@
-# GUIDE: Hướng Dẫn Chạy Và Hiểu Pipeline
+# GUIDE: Chạy Thí Nghiệm Thật Bằng OpenAI API
 
-Tài liệu này hướng dẫn chi tiết cách chạy toàn bộ project **Beyond Majority Voting: Multi-Agent Debate for Reliable NLP Reasoning**. Mục tiêu là giúp bạn chạy được từ đầu đến cuối: chuẩn bị dữ liệu, chạy baseline, chạy Multi-Agent Debate, chạy ablation, đánh giá kết quả và sinh bảng cho báo cáo.
+Tài liệu này hướng dẫn cách chạy project **Beyond Majority Voting: Multi-Agent Debate for Reliable NLP Reasoning** bằng **API key thật**, gọi tới **model thật**, và tạo output thật để phục vụ báo cáo nghiên cứu. Workflow chính trong tài liệu này **không dùng mock** và **không dùng dry-run**.
 
-## 1. Ý Nghĩa Tổng Quát Của Project
+## 1. Trước Khi Chạy
 
-Project này kiểm tra câu hỏi nghiên cứu: **Multi-Agent Debate có thật sự tốt hơn Majority Voting trong NLP reasoning hay không?**
+Project này có nhiều lời gọi model vì phải chạy baseline, Multi-Agent Debate và ablation. Nếu chạy cấu hình đầy đủ trong `configs/experiment.yaml`, chi phí API có thể tăng nhanh.
 
-Pipeline được thiết kế để so sánh nhiều phương pháp:
+Repo có hai cấu hình chạy thật:
 
-- `single_direct`: một agent trả lời trực tiếp.
-- `single_cot`: một agent trả lời kèm tóm tắt lập luận có cấu trúc.
-- `self_consistency`: một model sinh nhiều lời giải độc lập rồi chọn đáp án phổ biến nhất.
-- `multi_agent_majority`: nhiều agent trả lời độc lập rồi majority vote.
-- `homogeneous_debate`: nhiều agent cùng kiểu prompt tranh luận qua nhiều vòng.
-- `specialized_debate`: các agent có vai trò khác nhau như Solver, Critic, Skeptic, Evidence Checker và Judge.
-- `ablation`: bỏ bớt role, đổi số vòng debate, đổi decision protocol hoặc đổi số agent.
+- `configs/real_smoke.yaml`: chạy thật rất nhỏ để kiểm tra API, model, schema và evaluator.
+- `configs/experiment.yaml`: chạy thí nghiệm chính với 2 dataset, 3 seed, 5 agent, nhiều vòng debate và nhiều ablation.
 
-Điểm quan trọng: project **không giả định debate luôn tốt hơn voting**. Tất cả kết luận phải đến từ raw output thật trong `outputs/raw/`.
+Config chính hiện đã đặt:
 
-## 2. Luồng Pipeline
+```yaml
+runtime:
+  dry_run: false
+```
 
-Pipeline đầy đủ gồm 6 bước chính:
+Nghĩa là các script chạy với `configs/experiment.yaml` sẽ gọi API thật.
+
+## 2. Pipeline Tổng Thể
+
+Pipeline đầy đủ:
 
 ```text
 prepare_data
@@ -31,50 +33,54 @@ prepare_data
   -> generate_report_tables
 ```
 
-Ý nghĩa từng bước:
+| Bước | Script | Gọi OpenAI API? | Ý nghĩa |
+|---|---|---:|---|
+| 1 | `prepare_data.py` | Không | Tải dataset, chuẩn hóa sample, khóa sample IDs |
+| 2 | `run_baselines.py` | Có | Chạy các baseline đối chứng |
+| 3 | `run_debate.py` | Có | Chạy Multi-Agent Debate |
+| 4 | `run_ablations.py` | Có | Chạy ablation study |
+| 5 | `evaluate.py` | Không | Tính metrics từ raw output |
+| 6 | `generate_report_tables.py` | Không | Sinh bảng Markdown cho báo cáo |
 
-| Bước | Script | Ý nghĩa |
-|---|---|---|
-| 1 | `prepare_data.py` | Tải hoặc tạo dữ liệu, chuẩn hóa sample, khóa sample IDs |
-| 2 | `run_baselines.py` | Chạy các baseline đối chứng |
-| 3 | `run_debate.py` | Chạy hệ thống Multi-Agent Debate chính |
-| 4 | `run_ablations.py` | Chạy các thí nghiệm ablation |
-| 5 | `evaluate.py` | Tính metrics, gom raw output thành CSV/tables |
-| 6 | `generate_report_tables.py` | Sinh bảng Markdown để đưa vào báo cáo |
+Các bước tốn tiền API là `run_baselines.py`, `run_debate.py` và `run_ablations.py`.
 
-## 3. Cài Đặt Môi Trường
+## 3. Cài Đặt
 
-### 3.1. Tạo virtual environment
-
-Trên Windows PowerShell:
+Tạo môi trường:
 
 ```bash
 python -m venv .venv
+```
+
+Kích hoạt trên Windows PowerShell:
+
+```bash
 .venv\Scripts\activate
 ```
 
-Trên macOS/Linux:
+Kích hoạt trên macOS/Linux:
 
 ```bash
-python -m venv .venv
 source .venv/bin/activate
 ```
 
-### 3.2. Cài dependencies
+Cài thư viện:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Lệnh này cài các thư viện cần thiết như `datasets`, `openai`, `pydantic`, `pandas`, `scikit-learn`, `pytest`, `PyYAML` và `matplotlib`.
+Kiểm tra phiên bản Python:
 
-Nếu không cài `matplotlib`, pipeline vẫn có thể sinh CSV/tables, nhưng biểu đồ PNG sẽ không được tạo.
+```bash
+python --version
+```
 
-## 4. Cấu Hình API Key Và Model
+Yêu cầu: Python 3.10 trở lên.
 
-Tạo file `.env` từ `.env.example`:
+## 4. Cấu Hình API Key Thật
 
-Trên Windows:
+Tạo `.env`:
 
 ```bash
 copy .env.example .env
@@ -86,7 +92,7 @@ Trên macOS/Linux:
 cp .env.example .env
 ```
 
-Sau đó mở `.env` và điền:
+Điền API key thật:
 
 ```text
 OPENAI_API_KEY=your_api_key_here
@@ -98,345 +104,320 @@ Lưu ý:
 
 - Không commit `.env`.
 - `.env` đã được ignore trong `.gitignore`.
-- API key chỉ được đọc từ biến môi trường, không ghi vào code, log hoặc report.
-- Model name chính nằm trong `configs/models.yaml`.
+- API key chỉ đọc từ biến môi trường.
+- Không có API key thật trong code, prompt, README, GUIDE, report hoặc log.
 
-## 5. Chạy Chế Độ Dry-Run
+## 5. Chạy Smoke Test Thật
 
-Dry-run dùng dữ liệu mô phỏng và response mô phỏng. Chế độ này dùng để kiểm tra code, schema, output, evaluator và report pipeline mà không tốn tiền API.
+Smoke test vẫn gọi API thật, nhưng chỉ chạy 1 sample, 1 seed, 2 agent và số cấu hình rất nhỏ. Nên chạy smoke test trước để kiểm tra API/model/parser.
 
-Chạy lần lượt:
-
-```bash
-python scripts/prepare_data.py --config configs/experiment.yaml --dry-run
-```
-
-Ý nghĩa:
-
-- Tạo dữ liệu mẫu mô phỏng.
-- Chuẩn hóa sample về schema chung.
-- Ghi file `outputs/processed/samples.jsonl`.
-- Ghi danh sách ID vào `outputs/processed/sample_ids.json`.
-
-Tiếp theo:
+### 5.1. Chuẩn bị dữ liệu
 
 ```bash
-python scripts/run_baselines.py --config configs/experiment.yaml --dry-run
+python scripts/prepare_data.py --config configs/real_smoke.yaml
 ```
 
-Ý nghĩa:
+Lệnh này không gọi OpenAI API. Nó tải dataset từ HuggingFace, chuẩn hóa sample và ghi:
 
-- Chạy `single_direct`.
-- Chạy `single_cot`.
-- Chạy `self_consistency`.
-- Chạy `multi_agent_majority`.
-- Lưu kết quả thô vào `outputs/raw/baselines.jsonl`.
-- Lưu cache response vào `outputs/raw/response_cache.jsonl`.
+```text
+outputs_real_smoke/processed/samples.jsonl
+outputs_real_smoke/processed/sample_ids.json
+```
 
-Tiếp theo:
+### 5.2. Chạy baseline bằng API thật
 
 ```bash
-python scripts/run_debate.py --config configs/experiment.yaml --dry-run
+python scripts/run_baselines.py --config configs/real_smoke.yaml
 ```
 
-Ý nghĩa:
+Lệnh này gọi model thật để chạy:
 
-- Chạy debate với nhiều số vòng: `0, 1, 2, 3`.
-- Chạy homogeneous debate.
-- Chạy specialized debate với Majority Voting.
-- Chạy specialized debate với Judge.
-- Lưu kết quả vào `outputs/raw/debate.jsonl`.
+- `single_direct`
+- `single_cot`
+- `self_consistency`
+- `multi_agent_majority`
 
-Tiếp theo:
+Output:
+
+```text
+outputs_real_smoke/raw/baselines.jsonl
+outputs_real_smoke/raw/response_cache.jsonl
+```
+
+### 5.3. Chạy debate bằng API thật
 
 ```bash
-python scripts/run_ablations.py --config configs/experiment.yaml --dry-run
+python scripts/run_debate.py --config configs/real_smoke.yaml
 ```
 
-Ý nghĩa:
+Lệnh này gọi model thật để chạy:
 
-- Khảo sát số vòng debate.
-- So sánh remove-one-role: bỏ Critic, Skeptic, Evidence Checker hoặc Judge.
-- So sánh decision protocol: Majority, Judge, Evidence-Aware Judge.
-- Khảo sát số agent: 2, 3, 5.
-- Lưu kết quả vào `outputs/raw/ablations.jsonl`.
+- `homogeneous_debate`
+- `specialized_debate` + Majority Voting
+- `specialized_debate` + Judge
 
-Tiếp theo:
+Output:
+
+```text
+outputs_real_smoke/raw/debate.jsonl
+```
+
+### 5.4. Chạy ablation bằng API thật
 
 ```bash
-python scripts/evaluate.py --config configs/experiment.yaml
+python scripts/run_ablations.py --config configs/real_smoke.yaml
 ```
 
-Ý nghĩa:
+Lệnh này gọi model thật để kiểm tra đường ablation tối thiểu.
 
-- Đọc các file JSONL trong `outputs/raw/`.
-- Tạo `outputs/processed/predictions.csv`.
-- Tính Accuracy.
-- Tính Semantic Reasoning Diversity.
-- Tính token cost và latency.
-- Tính Brier Score và Expected Calibration Error.
-- Sinh bảng `outputs/tables/main_results.csv`.
-- Sinh bảng `outputs/tables/reasoning_diversity.csv`.
-- Sinh bảng `outputs/tables/error_taxonomy_counts.csv`.
-- Nếu đủ dữ liệu, sinh `outputs/tables/behavioral_transitions.csv`.
-- Nếu có `matplotlib`, sinh biểu đồ trong `outputs/figures/`.
+Output:
 
-Cuối cùng:
+```text
+outputs_real_smoke/raw/ablations.jsonl
+```
+
+### 5.5. Đánh giá smoke output
 
 ```bash
-python scripts/generate_report_tables.py --config configs/experiment.yaml
+python scripts/evaluate.py --config configs/real_smoke.yaml
 ```
 
-Ý nghĩa:
+Lệnh này không gọi API. Nó sinh:
 
-- Đọc `outputs/tables/main_results.csv`.
-- Sinh bảng Markdown vào `report/generated_tables.md`.
-- Bảng này có thể được chèn hoặc tham khảo khi viết `report/report.md`.
+```text
+outputs_real_smoke/processed/predictions.csv
+outputs_real_smoke/tables/main_results.csv
+outputs_real_smoke/tables/reasoning_diversity.csv
+outputs_real_smoke/tables/error_taxonomy_counts.csv
+```
 
-Lưu ý quan trọng: kết quả dry-run **không phải kết quả khoa học thật**. Nó chỉ chứng minh pipeline chạy được.
-
-## 6. Chạy Toàn Bộ Dry-Run Bằng Một Chuỗi Lệnh
-
-Trên Windows PowerShell:
+### 5.6. Sinh bảng Markdown
 
 ```bash
-python scripts/prepare_data.py --config configs/experiment.yaml --dry-run
-python scripts/run_baselines.py --config configs/experiment.yaml --dry-run
-python scripts/run_debate.py --config configs/experiment.yaml --dry-run
-python scripts/run_ablations.py --config configs/experiment.yaml --dry-run
-python scripts/evaluate.py --config configs/experiment.yaml
-python scripts/generate_report_tables.py --config configs/experiment.yaml
+python scripts/generate_report_tables.py --config configs/real_smoke.yaml
 ```
 
-Không nên chạy `evaluate.py` và `generate_report_tables.py` song song, vì `generate_report_tables.py` cần file do `evaluate.py` tạo ra trước.
+Lệnh này không gọi API. Nó sinh:
 
-## 7. Chạy Thí Nghiệm Thật Với API
-
-Trước khi chạy thật, mở `configs/experiment.yaml` và chỉnh:
-
-```yaml
-runtime:
-  dry_run: false
-  overwrite: false
-  resume: true
-  max_samples_per_run:
-  pilot_samples: 20
+```text
+report/generated_tables.md
 ```
 
-Nếu muốn chạy pilot nhỏ trước, đặt:
+Không chạy `evaluate.py` và `generate_report_tables.py` song song vì `generate_report_tables.py` cần file do `evaluate.py` tạo trước.
 
-```yaml
-runtime:
-  dry_run: false
-  max_samples_per_run: 20
-```
+## 6. Chạy Main Experiment Thật
 
-Sau khi kiểm tra ổn, có thể đặt `max_samples_per_run` rỗng để chạy toàn bộ subset.
-
-Chạy dữ liệu thật:
+Sau khi smoke test thành công, chạy cấu hình chính:
 
 ```bash
 python scripts/prepare_data.py --config configs/experiment.yaml
-```
-
-Script này sẽ tải dataset qua HuggingFace theo `configs/datasets.yaml`.
-
-Chạy baseline thật:
-
-```bash
 python scripts/run_baselines.py --config configs/experiment.yaml
-```
-
-Chạy debate thật:
-
-```bash
 python scripts/run_debate.py --config configs/experiment.yaml
-```
-
-Chạy ablation thật:
-
-```bash
 python scripts/run_ablations.py --config configs/experiment.yaml
-```
-
-Đánh giá:
-
-```bash
 python scripts/evaluate.py --config configs/experiment.yaml
-```
-
-Sinh bảng báo cáo:
-
-```bash
 python scripts/generate_report_tables.py --config configs/experiment.yaml
 ```
 
-## 8. Ý Nghĩa Các File Cấu Hình
+Các lệnh gọi API thật:
 
-### 8.1. `configs/experiment.yaml`
+- `run_baselines.py`
+- `run_debate.py`
+- `run_ablations.py`
 
-Đây là file cấu hình chính.
+Các lệnh không gọi API:
 
-Các tham số quan trọng:
+- `prepare_data.py`
+- `evaluate.py`
+- `generate_report_tables.py`
 
-- `random_seeds`: danh sách seed để chạy lặp lại.
-- `datasets`: dataset dùng trong thí nghiệm.
-- `sample_size_per_dataset`: số mẫu mỗi dataset.
-- `default_agents`: số agent mặc định.
-- `debate_rounds`: số vòng debate cần khảo sát.
-- `self_consistency_k`: số reasoning path trong Self-Consistency.
-- `baselines`: danh sách baseline cần chạy.
-- `debate_methods`: danh sách phương pháp debate.
-- `ablations`: cấu hình ablation.
-- `runtime.dry_run`: bật/tắt chế độ chạy thử.
-- `runtime.overwrite`: cho phép ghi đè output cũ hay không.
-- `evaluation.semantic_diversity.method`: cách đo semantic diversity.
+## 7. Ý Nghĩa Từng Script
 
-### 8.2. `configs/models.yaml`
+### `prepare_data.py`
 
-File này chứa cấu hình model:
+Tải và chuẩn hóa dữ liệu.
 
-- `provider`: provider model, ví dụ `openai`.
-- `default_model`: model sinh câu trả lời.
-- `embedding_model`: model embedding nếu dùng semantic embedding.
-- `temperature`: độ ngẫu nhiên khi sinh output.
-- `max_output_tokens`: giới hạn output token.
-- `retry.max_attempts`: số lần retry khi lỗi.
-- `rate_limit.min_delay_seconds`: khoảng nghỉ tối thiểu giữa các lần gọi API.
-
-### 8.3. `configs/datasets.yaml`
-
-File này chứa cấu hình dataset:
-
-- HuggingFace dataset name.
-- Split dùng để đánh giá.
-- Số mẫu cần chọn.
-- File khóa sample IDs.
-- Tiêu chí loại bỏ mẫu thiếu đáp án.
-
-## 9. Ý Nghĩa Các Prompt
-
-Prompt nằm trong thư mục `prompts/`.
-
-- `solver.txt`: agent giải bài và đưa đáp án.
-- `critic.txt`: agent tìm lỗi logic, thiếu evidence, giả định sai.
-- `skeptic.txt`: agent tìm phản ví dụ, cách hiểu khác và trường hợp biên.
-- `evidence_checker.txt`: agent gắn nhãn bằng chứng cho từng claim.
-- `judge.txt`: agent chọn đáp án cuối dựa trên chất lượng lập luận và evidence.
-
-Các prompt đã được viết bằng tiếng Việt có dấu. Output JSON vẫn giữ tên field tiếng Anh để ổn định schema, nhưng giá trị chuỗi được yêu cầu trả lời bằng tiếng Việt có dấu.
-
-## 10. Ý Nghĩa Các Output
-
-### 10.1. `outputs/raw/`
-
-Chứa output thô.
-
-- `baselines.jsonl`: kết quả từng sample cho baseline.
-- `debate.jsonl`: kết quả từng sample cho debate.
-- `ablations.jsonl`: kết quả từng sample cho ablation.
-- `response_cache.jsonl`: cache response để không gọi API lại khi request trùng.
-
-Mỗi dòng là một JSON object. Đây là dữ liệu quan trọng nhất để kiểm chứng nghiên cứu.
-
-### 10.2. `outputs/processed/`
-
-Chứa dữ liệu đã xử lý.
-
-- `samples.jsonl`: sample chuẩn hóa.
-- `sample_ids.json`: danh sách sample ID đã khóa.
-- `predictions.csv`: toàn bộ prediction đã gom từ raw JSONL.
-
-### 10.3. `outputs/tables/`
-
-Chứa bảng tổng hợp.
-
-- `main_results.csv`: bảng chính gồm accuracy, token cost, latency, calibration.
-- `reasoning_diversity.csv`: semantic diversity theo từng prediction.
-- `error_taxonomy_counts.csv`: thống kê loại lỗi.
-- `behavioral_transitions.csv`: chuyển đổi hành vi trước/sau debate.
-- `correction_degradation.json`: Correction Rate và Degradation Rate.
-
-### 10.4. `outputs/figures/`
-
-Chứa biểu đồ được sinh bởi `evaluate.py`, ví dụ:
-
-- Accuracy theo method.
-- Token cost theo method.
-
-Nếu thiếu `matplotlib`, thư mục này sẽ có file `FIGURES_NOT_GENERATED.txt`.
-
-### 10.5. `report/`
-
-Chứa báo cáo:
-
-- `report/report.md`: báo cáo tiếng Việt.
-- `report/references.bib`: tài liệu tham khảo BibTeX.
-- `report/generated_tables.md`: bảng Markdown sinh từ kết quả.
-
-## 11. Các Metric Được Tính
-
-### Accuracy
-
-Tỷ lệ câu trả lời đúng:
+Output:
 
 ```text
-Accuracy = số câu đúng / tổng số câu
+outputs/processed/samples.jsonl
+outputs/processed/sample_ids.json
 ```
 
-### Correction Rate
+Ý nghĩa:
 
-Tỷ lệ mẫu sai trước debate nhưng đúng sau debate:
+- `samples.jsonl`: dữ liệu đã chuẩn hóa theo schema chung.
+- `sample_ids.json`: danh sách sample ID đã khóa để tái lập.
+
+### `run_baselines.py`
+
+Chạy 4 baseline:
+
+- B1 `single_direct`
+- B2 `single_cot`
+- B3 `self_consistency`
+- B4 `multi_agent_majority`
+
+Output:
 
 ```text
-Correction Rate = wrong_before_correct_after / wrong_before
+outputs/raw/baselines.jsonl
 ```
 
-### Degradation Rate
+### `run_debate.py`
 
-Tỷ lệ mẫu đúng trước debate nhưng sai sau debate:
+Chạy Multi-Agent Debate:
+
+- Homogeneous Debate.
+- Specialized Debate + Majority Voting.
+- Specialized Debate + Judge.
+- Rounds: 0, 1, 2, 3.
+
+Output:
 
 ```text
-Degradation Rate = correct_before_wrong_after / correct_before
+outputs/raw/debate.jsonl
 ```
 
-### Semantic Reasoning Diversity
+### `run_ablations.py`
 
-Đo mức khác nhau giữa các `rationale_summary`:
+Chạy ablation:
+
+- Số vòng debate.
+- Remove-one-role.
+- Decision protocol.
+- Số lượng agent.
+
+Output:
+
+```text
+outputs/raw/ablations.jsonl
+```
+
+### `evaluate.py`
+
+Tính metrics từ raw output.
+
+Output:
+
+```text
+outputs/processed/predictions.csv
+outputs/tables/main_results.csv
+outputs/tables/reasoning_diversity.csv
+outputs/tables/error_taxonomy_counts.csv
+outputs/tables/behavioral_transitions.csv
+outputs/tables/correction_degradation.json
+outputs/figures/
+```
+
+### `generate_report_tables.py`
+
+Sinh bảng Markdown cho report:
+
+```text
+report/generated_tables.md
+```
+
+## 8. Agent Trong Hệ Thống
+
+Cấu hình chính:
+
+```yaml
+default_agents: 5
+```
+
+Nghĩa là mỗi sample có 5 Solver agent độc lập ở giai đoạn đầu.
+
+Các role:
+
+- `Solver`: giải câu hỏi, trả đáp án, rationale_summary, evidence và confidence.
+- `Critic`: tìm lỗi logic, thiếu bằng chứng, giả định không có căn cứ.
+- `Skeptic`: tìm phản ví dụ, cách hiểu khác và trường hợp biên.
+- `Evidence Checker`: kiểm tra claim, gắn nhãn SUPPORTED/UNSUPPORTED/CONTRADICTED/UNCERTAIN.
+- `Judge`: chọn final answer dựa trên reasoning quality và evidence support.
+
+Số lần gọi API tăng theo số agent, số vòng debate và decision protocol.
+
+## 9. Output Raw Và Vì Sao Quan Trọng
+
+Raw output là dữ liệu kiểm chứng chính của nghiên cứu.
+
+Các file:
+
+```text
+outputs/raw/baselines.jsonl
+outputs/raw/debate.jsonl
+outputs/raw/ablations.jsonl
+outputs/raw/response_cache.jsonl
+```
+
+Mỗi dòng thường có:
+
+- `sample_id`
+- `dataset`
+- `method`
+- `seed`
+- `answer`
+- `gold`
+- `correct`
+- `confidence`
+- `input_tokens`
+- `output_tokens`
+- `total_tokens`
+- `latency_seconds`
+- `traces`
+- `raw`
+
+Không sửa tay raw output. Nếu cần chạy lại, nên backup trước.
+
+## 10. Metrics
+
+`evaluate.py` tính:
+
+- Accuracy.
+- Bootstrap 95% confidence interval.
+- Token cost.
+- Accuracy trên mỗi 1.000 token.
+- Latency trung bình, median, P95.
+- Brier Score.
+- Expected Calibration Error.
+- Semantic Reasoning Diversity.
+- Correction Rate.
+- Degradation Rate.
+- Error taxonomy counts.
+- Behavioral transitions.
+
+Semantic diversity mặc định:
 
 ```text
 Semantic Diversity = 1 - mean pairwise cosine similarity
 ```
 
-Mặc định pipeline dùng TF-IDF để chạy offline. Có thể mở rộng sang embedding model cố định.
+Không đồng nhất diversity cao với reasoning đúng. Diversity chỉ đo mức khác nhau giữa các reasoning trace.
 
-### Token Cost
+## 11. Cách Đọc Bảng Kết Quả
 
-Ghi:
+Mở:
 
-- input tokens
-- output tokens
-- total tokens
-- tokens trung bình mỗi sample
+```text
+outputs/tables/main_results.csv
+```
 
-### Latency
+Các cột quan trọng:
 
-Ghi:
+- `dataset`: dataset.
+- `method`: phương pháp.
+- `n`: số mẫu.
+- `accuracy`: độ chính xác.
+- `accuracy_ci_low`, `accuracy_ci_high`: khoảng tin cậy bootstrap.
+- `mean_total_tokens`: token trung bình.
+- `accuracy_per_1000_tokens`: hiệu quả theo token.
+- `mean_latency_seconds`: độ trễ trung bình.
+- `brier_score`: Brier Score.
+- `ece`: Expected Calibration Error.
 
-- latency trung bình
-- median latency
-- P95 latency
+Khi viết báo cáo, cần so sánh Accuracy với token cost và latency, không chỉ nhìn Accuracy.
 
-### Calibration
-
-Gồm:
-
-- Brier Score
-- Expected Calibration Error
-
-Không được đồng nhất confidence tự báo cáo với xác suất đúng thật.
-
-## 12. Kiểm Thử
+## 12. Test
 
 Chạy:
 
@@ -444,135 +425,48 @@ Chạy:
 pytest
 ```
 
-Ý nghĩa:
+Test kiểm tra:
 
-- Kiểm tra schema Pydantic.
-- Kiểm tra majority vote.
-- Kiểm tra metric functions.
-- Kiểm tra correction/degradation.
+- Schema Pydantic.
+- Majority vote.
+- Metric functions.
+- Correction/degradation.
 
-Nếu test pass, bạn có thể tự tin rằng các thành phần lõi đang hoạt động.
+## 13. Chạy Lại Và Ghi Đè Output
 
-## 13. Khi Output Cũ Đã Tồn Tại
+Mặc định:
 
-Các script `run_baselines.py`, `run_debate.py`, `run_ablations.py` không ghi đè output cũ nếu `runtime.overwrite: false`.
+```yaml
+runtime:
+  overwrite: false
+```
 
-Nếu muốn chạy lại từ đầu:
+Nếu output đã tồn tại, script sẽ dừng để tránh ghi đè kết quả thật.
 
-1. Xóa các file trong `outputs/raw/`, `outputs/processed/`, `outputs/tables/`, `outputs/figures/`.
-2. Hoặc chỉnh trong `configs/experiment.yaml`:
+Muốn chạy lại cùng output path:
 
 ```yaml
 runtime:
   overwrite: true
 ```
 
-Khuyến nghị: khi chạy thí nghiệm thật, không nên xóa raw output nếu chưa backup.
+Khuyến nghị tốt hơn là dùng output_dir mới:
 
-## 14. Cách Đọc Kết Quả
-
-Mở bảng chính:
-
-```bash
-outputs/tables/main_results.csv
+```yaml
+output_dir: outputs_real_run_001
 ```
 
-Các cột quan trọng:
+`outputs_real*/` đã được ignore để tránh push raw output thật.
 
-- `dataset`: dataset đang xét.
-- `method`: phương pháp.
-- `n`: số prediction.
-- `accuracy`: độ chính xác.
-- `accuracy_ci_low`, `accuracy_ci_high`: bootstrap confidence interval.
-- `mean_total_tokens`: token trung bình.
-- `accuracy_per_1000_tokens`: accuracy trên mỗi 1.000 token.
-- `mean_latency_seconds`: latency trung bình.
-- `brier_score`: lỗi calibration.
-- `ece`: Expected Calibration Error.
+## 14. Kiểm Tra Không Lộ API Key Trước Khi Push
 
-Để xem diversity:
+Chạy:
 
 ```bash
-outputs/tables/reasoning_diversity.csv
+rg "sk-proj|OPENAI_API_KEY=" -n --glob "!*.env" --glob "!.env"
 ```
 
-Để xem behavioral analysis:
-
-```bash
-outputs/tables/behavioral_transitions.csv
-```
-
-Để xem error taxonomy:
-
-```bash
-outputs/tables/error_taxonomy_counts.csv
-```
-
-## 15. Quy Trình Khuyến Nghị Khi Làm Nghiên Cứu Thật
-
-1. Chạy `pytest`.
-2. Chạy dry-run đầy đủ.
-3. Chạy pilot thật với `max_samples_per_run: 20`.
-4. Kiểm tra raw JSONL xem agent có trả đúng schema không.
-5. Kiểm tra chi phí token và latency.
-6. Khóa prompt và config.
-7. Chạy main experiment.
-8. Chạy ablation.
-9. Chạy evaluate.
-10. Sinh bảng và cập nhật report.
-11. Chỉ kết luận hypothesis dựa trên output thật.
-
-## 16. Các Lỗi Thường Gặp
-
-### Lỗi thiếu API key
-
-Nếu chạy thật mà thiếu key, bạn sẽ gặp lỗi liên quan `OPENAI_API_KEY`.
-
-Cách sửa:
-
-- Kiểm tra file `.env`.
-- Đảm bảo đã chạy trong đúng thư mục repo.
-- Đảm bảo không commit `.env`.
-
-### Lỗi output file đã tồn tại
-
-Nếu thấy lỗi kiểu file đã tồn tại, có hai cách:
-
-- Đổi tên hoặc backup file output cũ.
-- Đặt `runtime.overwrite: true`.
-
-### Lỗi thiếu dataset
-
-Nếu HuggingFace dataset không tải được:
-
-- Kiểm tra kết nối mạng.
-- Kiểm tra tên dataset trong `configs/datasets.yaml`.
-- Cài lại dependency bằng `pip install -r requirements.txt`.
-
-### Lỗi không sinh biểu đồ
-
-Nếu không có biểu đồ PNG:
-
-- Cài `matplotlib`.
-- Chạy lại:
-
-```bash
-python scripts/evaluate.py --config configs/experiment.yaml
-```
-
-### Tiếng Việt hiển thị sai trên PowerShell
-
-Một số console Windows có thể hiển thị sai dấu dù file lưu đúng UTF-8.
-
-Có thể kiểm tra bằng cách mở file trong VS Code hoặc chạy:
-
-```bash
-python -c "from pathlib import Path; print(Path('prompts/solver.txt').read_text(encoding='utf-8')[:100])"
-```
-
-## 17. Trước Khi Push Lên Git
-
-Kiểm tra:
+Chạy thêm:
 
 ```bash
 git status --short --ignored
@@ -582,50 +476,88 @@ git status --short --ignored
 
 - `.env` bị ignore.
 - `outputs/raw/*` bị ignore.
-- `outputs/processed/*` bị ignore.
-- `outputs/tables/*` bị ignore.
-- cache Python bị ignore.
-- source code, config, prompts, README, GUIDE và report chính vẫn được track.
+- `outputs_real*/` bị ignore.
+- Không có API key thật trong source code, report, README hoặc GUIDE.
 
-## 18. Lệnh Tái Lập Nhanh
+## 15. Lỗi Thường Gặp
 
-Dry-run:
+### Thiếu API key
+
+Kiểm tra `.env`:
+
+```text
+OPENAI_API_KEY=...
+```
+
+### Output đã tồn tại
+
+Đặt `runtime.overwrite: true` hoặc đổi `output_dir`.
+
+### Model trả JSON chưa đúng schema
+
+Model thật đôi khi trả format hơi lệch. Parser đã xử lý các trường hợp phổ biến trong:
+
+```text
+src/schemas/agent_outputs.py
+```
+
+### LogiQA lỗi dataset script
+
+Loader đã fallback sang bản Parquet auto-converted trong:
+
+```text
+src/datasets/loader.py
+```
+
+### Không sinh biểu đồ
+
+Cài đủ requirements:
 
 ```bash
-python scripts/prepare_data.py --config configs/experiment.yaml --dry-run
-python scripts/run_baselines.py --config configs/experiment.yaml --dry-run
-python scripts/run_debate.py --config configs/experiment.yaml --dry-run
-python scripts/run_ablations.py --config configs/experiment.yaml --dry-run
+pip install -r requirements.txt
+```
+
+Rồi chạy lại:
+
+```bash
 python scripts/evaluate.py --config configs/experiment.yaml
-python scripts/generate_report_tables.py --config configs/experiment.yaml
 ```
 
-Test:
+## 16. Smoke Test Thật Đã Chạy
 
-```bash
-pytest
+Project đã được kiểm tra bằng API thật với:
+
+```text
+config: configs/real_smoke.yaml
+output_dir: outputs_real_smoke
+model: gpt-4o-mini
+dry_run: false
 ```
 
-Chạy thật:
+Kết quả smoke:
 
-```bash
-python scripts/prepare_data.py --config configs/experiment.yaml
-python scripts/run_baselines.py --config configs/experiment.yaml
-python scripts/run_debate.py --config configs/experiment.yaml
-python scripts/run_ablations.py --config configs/experiment.yaml
-python scripts/evaluate.py --config configs/experiment.yaml
-python scripts/generate_report_tables.py --config configs/experiment.yaml
-```
+- `baselines.jsonl`: 4 dòng.
+- `debate.jsonl`: 3 dòng.
+- `ablations.jsonl`: 1 dòng.
+- `response_cache.jsonl`: 18 response/cache entries.
 
-## 19. Nguyên Tắc Trung Thực Khi Viết Báo Cáo
+Token ghi nhận:
 
-- Không dùng dry-run làm kết quả nghiên cứu.
-- Không bịa số liệu.
-- Không bịa citation.
-- Không chỉnh hypothesis sau khi thấy kết quả mà không ghi rõ.
-- Không dùng test set để tối ưu prompt.
-- Không nói debate tốt hơn voting nếu fair-compute không hỗ trợ.
+- Baselines: 3,508 tokens.
+- Debate: 4,355 tokens.
+- Ablations: 2,039 tokens.
+
+Smoke test xác nhận API key, model thật, dataset loader, parser, evaluator và report table generation đều hoạt động. Vì chỉ có 1 sample, không dùng kết quả này để kết luận khoa học.
+
+## 17. Nguyên Tắc Khi Dùng Kết Quả Thật
+
+- Chỉ kết luận từ raw output thật.
+- Không dùng smoke 1 sample để kết luận.
+- Không dùng mock/dry-run làm số liệu nghiên cứu.
+- Không bịa số liệu còn thiếu.
+- Không chỉnh hypothesis sau khi thấy kết quả nếu không ghi rõ.
+- Không nói debate tốt hơn Majority Voting nếu fair-compute không hỗ trợ.
+- Không đồng nhất consensus với xác suất đúng.
 - Không đồng nhất reasoning diversity với correctness.
-- Không đồng nhất consensus score với xác suất đúng.
 
-Khi chạy xong thí nghiệm thật, hãy cập nhật `report/report.md` dựa trên bảng thật trong `outputs/tables/`.
+Sau khi chạy main experiment thật, cập nhật `report/report.md` bằng bảng thật trong `outputs/tables/`.
