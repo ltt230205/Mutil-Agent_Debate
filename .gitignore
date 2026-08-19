@@ -35,6 +35,8 @@ outputs/processed/*
 outputs/tables/*
 outputs/figures/*
 outputs_real*/
+outputs_*_real/
+.ipynb_checkpoints/
 !outputs/.gitkeep
 !outputs/raw/.gitkeep
 !outputs/processed/.gitkeep
@@ -46,3 +48,6 @@ outputs_real*/
 report/generated_tables.md
 report/figures/*
 !report/figures/.gitkeep
+
+report/qa_render_final/*
+report/qa_render/*

@@ -39,13 +39,20 @@ def run_single(sample: Sample, client: LlmClient, prompts_dir: str, method: str,
     return _record(sample, method, seed, output.answer, output.confidence, response.usage.input_tokens, response.usage.output_tokens, response.latency_seconds, [output], [output.model_dump()])
 
 
-def run_self_consistency(sample: Sample, client: LlmClient, prompts_dir: str, k: int, seed: int) -> PredictionRecord:
+def run_self_consistency(
+    sample: Sample,
+    client: LlmClient,
+    prompts_dir: str,
+    k: int,
+    seed: int,
+    method: str = "self_consistency",
+) -> PredictionRecord:
     outputs: list[SolverOutput] = []
     input_tokens = output_tokens = 0
     latency = 0.0
     for idx in range(k):
         agent = Agent("solver", Path(prompts_dir) / "solver.txt", client)
-        output, response = agent.run(sample, 0, {"method": "self_consistency", "path": idx})
+        output, response = agent.run(sample, 0, {"method": method, "path": idx})
         assert isinstance(output, SolverOutput)
         output.reasoning_id = f"sc_{idx}_{sample.sample_id}"
         outputs.append(output)
@@ -53,16 +60,23 @@ def run_self_consistency(sample: Sample, client: LlmClient, prompts_dir: str, k:
         output_tokens += response.usage.output_tokens
         latency += response.latency_seconds
     answer, confidence = majority_vote(outputs)
-    return _record(sample, "self_consistency", seed, answer, confidence, input_tokens, output_tokens, latency, outputs, [o.model_dump() for o in outputs])
+    return _record(sample, method, seed, answer, confidence, input_tokens, output_tokens, latency, outputs, [o.model_dump() for o in outputs])
 
 
-def run_multi_agent_majority(sample: Sample, client: LlmClient, prompts_dir: str, num_agents: int, seed: int) -> PredictionRecord:
+def run_multi_agent_majority(
+    sample: Sample,
+    client: LlmClient,
+    prompts_dir: str,
+    num_agents: int,
+    seed: int,
+    method: str = "multi_agent_majority",
+) -> PredictionRecord:
     outputs: list[SolverOutput] = []
     input_tokens = output_tokens = 0
     latency = 0.0
     for idx in range(num_agents):
         agent = Agent("solver", Path(prompts_dir) / "solver.txt", client)
-        output, response = agent.run(sample, 0, {"method": "multi_agent_majority", "agent_index": idx})
+        output, response = agent.run(sample, 0, {"method": method, "agent_index": idx})
         assert isinstance(output, SolverOutput)
         output.reasoning_id = f"mv_{idx}_{sample.sample_id}"
         outputs.append(output)
@@ -70,7 +84,7 @@ def run_multi_agent_majority(sample: Sample, client: LlmClient, prompts_dir: str
         output_tokens += response.usage.output_tokens
         latency += response.latency_seconds
     answer, confidence = majority_vote(outputs)
-    return _record(sample, "multi_agent_majority", seed, answer, confidence, input_tokens, output_tokens, latency, outputs, [o.model_dump() for o in outputs])
+    return _record(sample, method, seed, answer, confidence, input_tokens, output_tokens, latency, outputs, [o.model_dump() for o in outputs])
 
 
 def _record(

@@ -60,6 +60,7 @@ class LlmClient:
         self.max_attempts = max_attempts
         self.backoff_seconds = backoff_seconds
         self.min_delay_seconds = min_delay_seconds
+        self.seed = seed
         self.random = random.Random(seed)
         self._client = None if dry_run else OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self._last_call = 0.0
@@ -72,6 +73,7 @@ class LlmClient:
             "role": role,
             "temperature": self.temperature,
             "max_output_tokens": self.max_output_tokens,
+            "seed": self.seed,
         }
         key = cache_key(request)
         cached = self.cache.get(key)
@@ -112,6 +114,7 @@ class LlmClient:
                     model=self.model,
                     temperature=self.temperature,
                     max_tokens=self.max_output_tokens,
+                    seed=self.seed,
                     response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": system_prompt},

@@ -22,10 +22,40 @@ class Agent:
         self.client = client
 
     def run(self, sample: Sample, round_id: int, context: dict[str, Any] | None = None) -> tuple[BaseModel, LlmResponse]:
-        user_prompt = build_user_prompt(sample, round_id, context or {})
-        response = self.client.complete_json(self.system_prompt, user_prompt, self.role)
-        model = self._validate(response.content)
-        return model, response
+        base_context = dict(context or {})
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_latency = 0.0
+        all_cached = True
+        last_error: Exception | None = None
+
+        for attempt in range(1, 3):
+            attempt_context = dict(base_context)
+            if last_error is not None:
+                attempt_context["schema_retry"] = attempt
+                attempt_context["format_correction"] = (
+                    "Phản hồi trước không đúng JSON contract. Hãy trả về đúng một JSON object "
+                    "với đầy đủ trường bắt buộc và đúng kiểu dữ liệu."
+                )
+            user_prompt = build_user_prompt(sample, round_id, attempt_context)
+            response = self.client.complete_json(self.system_prompt, user_prompt, self.role)
+            total_input_tokens += response.usage.input_tokens
+            total_output_tokens += response.usage.output_tokens
+            total_latency += response.latency_seconds
+            all_cached = all_cached and response.cached
+            try:
+                model = self._validate(response.content)
+                combined = LlmResponse(
+                    content=response.content,
+                    usage=type(response.usage)(total_input_tokens, total_output_tokens),
+                    latency_seconds=total_latency,
+                    cached=all_cached,
+                )
+                return model, combined
+            except (ValueError, ValidationError) as exc:
+                last_error = exc
+
+        raise ValueError(f"Invalid {self.role} JSON after schema retry: {last_error}")
 
     def _validate(self, content: str) -> BaseModel:
         parsed = parse_model_json(content)
