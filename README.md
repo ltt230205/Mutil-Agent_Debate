@@ -6,7 +6,9 @@ Dự án nghiên cứu câu hỏi: **Multi-Agent Debate (MAD) có làm cho suy l
 
 Thay vì mặc định nhiều agent tranh luận luôn tốt hơn, dự án so sánh có kiểm soát giữa một agent, Self-Consistency, nhiều agent bỏ phiếu và nhiều biến thể debate. Hệ thống lưu toàn bộ phản hồi, token, latency và quyết định cuối để có thể kiểm tra lại kết quả mà không phải gọi API lần nữa.
 
-Notebook chính của dự án là [`KAGGLE_PILOT_PIPELINE.ipynb`](KAGGLE_PILOT_PIPELINE.ipynb). Đây là một notebook **standalone**: chỉ cần upload đúng file này lên Kaggle, bật Internet, thêm API key bằng Kaggle Secrets và chạy toàn bộ các cell. Notebook không cần đọc code hay cấu hình từ repository.
+Notebook dùng để tạo kết quả cuối cho báo cáo là [`KAGGLE_MAD_V2_REPORT_EXPERIMENT.ipynb`](KAGGLE_MAD_V2_REPORT_EXPERIMENT.ipynb): 100 mẫu holdout, ba seed, bốn baseline, MAD-v2 và bốn nhóm ablation. [`KAGGLE_MAD_V2_PIPELINE.ipynb`](KAGGLE_MAD_V2_PIPELINE.ipynb) là pilot nhỏ hơn. Cả hai đều **standalone**: chỉ cần upload đúng một file lên Kaggle, bật Internet, thêm API key bằng Kaggle Secrets và chạy toàn bộ cell.
+
+MAD-v2 dùng cùng ngân sách 10 `protocol_calls` với Majority Voting N=10. Sáu Solver đầu được chia sẻ giữa hai phương pháp; câu có đồng thuận mạnh đi tiếp theo MV, còn câu bất định dùng bốn lượt cho Critic, Evidence Checker, Revision và Blind Judge. Việc đổi đáp án chỉ được chấp nhận khi Critic, Evidence Checker, Revision và Judge cùng tạo ra chuỗi bằng chứng nhất quán. Notebook dùng holdout mới và loại toàn bộ sample ID đã dùng trong giai đoạn phát triển giao thức; vì vậy không được cam kết MAD sẽ thắng trước khi chạy kết quả thật.
 
 Các prompt và nội dung giải thích do agent sinh ra được yêu cầu viết bằng **tiếng Việt có dấu**. Tên field JSON, nhãn đáp án và enum giữ tiếng Anh để schema ổn định.
 
