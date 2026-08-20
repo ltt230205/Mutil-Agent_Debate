@@ -1,0 +1,17 @@
+datasets:
+  logiqa:
+    hf_name: lucasmccabe/logiqa
+    split: validation
+    id_field: id
+    sample_size: 250
+    license: "Dataset card/paper terms; verify before redistribution."
+  commonsense_qa:
+    hf_name: tau/commonsense_qa
+    split: validation
+    id_field: id
+    sample_size: 250
+    license: "Dataset card/paper terms; verify before redistribution."
+selection:
+  seeds: [42, 123, 2026]
+  lock_file: outputs/processed/sample_ids.json
+  exclude_missing_answer: true

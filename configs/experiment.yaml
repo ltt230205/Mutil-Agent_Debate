@@ -1,0 +1,42 @@
+report_language: vi
+python_min_version: "3.10"
+models_config: configs/models.yaml
+datasets_config: configs/datasets.yaml
+output_dir: outputs
+prompts_dir: prompts
+random_seeds: [42, 123, 2026]
+datasets: [logiqa, commonsense_qa]
+sample_size_per_dataset: 250
+default_agents: 5
+debate_rounds: [0, 1, 2, 3]
+self_consistency_k: 5
+fair_compute:
+  match_model_calls: true
+  match_token_budget: true
+baselines:
+  - single_direct
+  - single_cot
+  - self_consistency
+  - multi_agent_majority
+debate_methods:
+  - homogeneous_debate
+  - specialized_debate_majority
+  - specialized_debate_judge
+ablations:
+  rounds: [0, 1, 2, 3]
+  role_specialization: [homogeneous, specialized]
+  remove_one_role: [full, no_critic, no_skeptic, no_evidence_checker, no_judge]
+  decision_protocol: [majority, judge, evidence_aware_judge]
+  num_agents: [2, 3, 5]
+runtime:
+  dry_run: false
+  overwrite: false
+  resume: true
+  max_samples_per_run:
+  pilot_samples: 20
+evaluation:
+  bootstrap_samples: 1000
+  confidence_level: 0.95
+  semantic_diversity:
+    method: tfidf
+    embedding_model: text-embedding-3-small

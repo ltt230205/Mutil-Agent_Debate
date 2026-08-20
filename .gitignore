@@ -1,0 +1,53 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime logs
+*.log
+outputs/logs/*
+
+# Generated experiment artifacts
+outputs/raw/*
+outputs/processed/*
+outputs/tables/*
+outputs/figures/*
+outputs_real*/
+outputs_*_real/
+.ipynb_checkpoints/
+!outputs/.gitkeep
+!outputs/raw/.gitkeep
+!outputs/processed/.gitkeep
+!outputs/tables/.gitkeep
+!outputs/figures/.gitkeep
+!outputs/logs/.gitkeep
+
+# Generated report artifacts
+report/generated_tables.md
+report/figures/*
+!report/figures/.gitkeep
+
+report/qa_render_final/*
+report/qa_render/*
