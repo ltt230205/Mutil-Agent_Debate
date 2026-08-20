@@ -1,564 +1,495 @@
 # Beyond Majority Voting: Multi-Agent Debate for Reliable NLP Reasoning
 
-## 1. Giới thiệu đề tài
+Mini-research project đánh giá liệu **Multi-Agent Debate (MAD)** có cải thiện độ chính xác và độ tin cậy của suy luận NLP so với **Majority Voting (MV)** khi hai phương pháp sử dụng inference budget tương đương hay không.
 
-Dự án nghiên cứu câu hỏi: **Multi-Agent Debate (MAD) có làm cho suy luận NLP đáng tin cậy hơn Majority Voting hay không?**
+Dự án không giả định MAD luôn tốt hơn MV. Kết luận chỉ được đưa ra sau khi so sánh trên dữ liệu API thật, cùng sample ID, cùng seed và cùng ngân sách gọi model.
 
-Thay vì mặc định nhiều agent tranh luận luôn tốt hơn, dự án so sánh có kiểm soát giữa một agent, Self-Consistency, nhiều agent bỏ phiếu và nhiều biến thể debate. Hệ thống lưu toàn bộ phản hồi, token, latency và quyết định cuối để có thể kiểm tra lại kết quả mà không phải gọi API lần nữa.
+## 1. Trạng thái hiện tại
 
-Notebook dùng để tạo kết quả cuối cho báo cáo là [`KAGGLE_MAD_V2_REPORT_EXPERIMENT.ipynb`](KAGGLE_MAD_V2_REPORT_EXPERIMENT.ipynb): 100 mẫu holdout, ba seed, bốn baseline, MAD-v2 và bốn nhóm ablation. [`KAGGLE_MAD_V2_PIPELINE.ipynb`](KAGGLE_MAD_V2_PIPELINE.ipynb) là pilot nhỏ hơn. Cả hai đều **standalone**: chỉ cần upload đúng một file lên Kaggle, bật Internet, thêm API key bằng Kaggle Secrets và chạy toàn bộ cell.
+Pipeline chính dùng để tạo dữ liệu cho báo cáo là [`KAGGLE_MAD_V2_REPORT_EXPERIMENT.ipynb`](KAGGLE_MAD_V2_REPORT_EXPERIMENT.ipynb).
 
-MAD-v2 dùng cùng ngân sách 10 `protocol_calls` với Majority Voting N=10. Sáu Solver đầu được chia sẻ giữa hai phương pháp; câu có đồng thuận mạnh đi tiếp theo MV, còn câu bất định dùng bốn lượt cho Critic, Evidence Checker, Revision và Blind Judge. Việc đổi đáp án chỉ được chấp nhận khi Critic, Evidence Checker, Revision và Judge cùng tạo ra chuỗi bằng chứng nhất quán. Notebook dùng holdout mới và loại toàn bộ sample ID đã dùng trong giai đoạn phát triển giao thức; vì vậy không được cam kết MAD sẽ thắng trước khi chạy kết quả thật.
+Notebook này là **standalone**: chỉ cần upload một file lên Kaggle, bật Internet, cấu hình Kaggle Secret và chọn **Run All**. Không cần upload repository, prompt, YAML hoặc dataset thủ công.
 
-Các prompt và nội dung giải thích do agent sinh ra được yêu cầu viết bằng **tiếng Việt có dấu**. Tên field JSON, nhãn đáp án và enum giữ tiếng Anh để schema ổn định.
-
-## 2. Pain point của đề tài
-
-### 2.1. Một câu trả lời đúng chưa chắc đến từ reasoning đáng tin cậy
-
-LLM có thể chọn đúng đáp án nhưng phần giải thích chứa giả định không có trong đề, bỏ sót điều kiện hoặc suy luận không hợp lệ. Nếu chỉ đo Accuracy, những lỗi này bị che khuất.
-
-### 2.2. Majority Voting chỉ đếm đáp án
-
-Majority Voting chọn nhãn xuất hiện nhiều nhất nhưng không đánh giá chất lượng lập luận. Một agent thiểu số có thể đúng và có bằng chứng tốt hơn, trong khi nhiều agent còn lại cùng lặp lại một lỗi tương quan.
-
-### 2.3. Nhiều mẫu không đồng nghĩa với reasoning diversity
-
-Self-Consistency hoặc nhiều agent có thể tạo ra các câu chữ khác nhau nhưng vẫn dùng cùng một chiến lược sai. Vì vậy dự án đo riêng:
-
-- Mức bất đồng đáp án.
-- Khoảng cách ngữ nghĩa giữa reasoning trace.
-- Quan hệ giữa diversity và độ chính xác.
-
-### 2.4. Debate cũng có thể làm kết quả xấu đi
-
-Trao đổi giữa agent có thể sửa lỗi, nhưng cũng có thể tạo ra majority pressure, conformity, sycophancy, lan truyền lỗi hoặc Judge bias. Dự án vì thế đo cả:
-
-- **Correction Rate:** sai trước debate, đúng sau debate.
-- **Degradation Rate:** đúng trước debate, sai sau debate.
-- **Resistant Error:** sai trước và vẫn sai sau debate.
-- **Minority-Correct Case:** agent đúng thuộc nhóm thiểu số.
-
-### 2.5. So sánh không công bằng về compute
-
-So sánh một lần gọi Single Agent với hàng chục lần gọi Debate sẽ không cho biết lợi ích đến từ protocol hay đơn giản từ compute lớn hơn. Notebook có cấu hình call-matched để so sánh Specialized Debate + Judge với Self-Consistency và Majority Voting dùng 10 model calls.
-
-### 2.6. Output của LLM không luôn tuân thủ JSON
-
-Model có thể trả sai tên field, sai enum, bọc JSON trong văn bản hoặc trả confidence ngoài kiểu mong đợi. Pipeline sử dụng Pydantic, normalization và schema retry có giới hạn để tránh làm hỏng cả thí nghiệm.
-
-### 2.7. Thí nghiệm API khó tái lập
-
-API có chi phí, rate limit và độ trễ; phiên Kaggle cũng có thể bị ngắt. Notebook giải quyết bằng seed control, khóa sample ID, JSONL append-only, response cache và checkpoint theo từng cấu hình.
-
-## 3. Câu hỏi nghiên cứu
-
-| Mã | Câu hỏi | Thí nghiệm chính | Chỉ số |
-|---|---|---|---|
-| RQ1 | Debate có tạo reasoning diversity thực sự không? | Self-Consistency, Majority Voting, Homogeneous và Specialized Debate | Answer Disagreement, Semantic Diversity |
-| RQ2 | Debate có tốt hơn voting khi compute tương đương không? | Specialized Debate + Judge so với K=10/N=10 | Accuracy, calls, token, latency, Accuracy/1.000 token |
-| RQ3 | Số vòng debate ảnh hưởng thế nào? | Rounds 0, 1, 2, 3 | Accuracy, correction, degradation, diversity, cost |
-| RQ4 | Role specialization có ích không? | Homogeneous, Specialized, remove-one-role | Accuracy, error taxonomy, cost |
-| RQ5 | Debate thất bại trong trường hợp nào? | Behavioral và error analysis | Successful Correction, Resistant Error, Harmful Revision, Minority-Correct |
-
-Các giả thuyết H1-H5 chỉ được kết luận sau khi có dữ liệu thật. Notebook không có logic ép kết quả phải ủng hộ MAD.
-
-## 4. Ý tưởng giải pháp
-
-### 4.1. Nguyên tắc thiết kế
-
-Mỗi câu hỏi trước tiên được nhiều Solver giải **độc lập**. Sau đó hệ thống ghi nhận bất đồng, cho các role chuyên biệt kiểm tra lập luận, yêu cầu Solver sửa câu trả lời và cuối cùng dùng Majority Voting hoặc Blind Judge để quyết định.
-
-```text
-Input Question
-    |
-    v
-Independent Solver Responses
-    |
-    v
-Disagreement Detection
-    |
-    +--> Critic: tìm lỗi logic và giả định thiếu căn cứ
-    +--> Skeptic: tìm phản ví dụ và cách hiểu khác
-    +--> Evidence Checker: đối chiếu claim với đề bài
-    |
-    v
-Solver Revision
-    |
-    v
-Lặp theo số vòng debate
-    |
-    +--> Majority Voting
-    +--> Blind Judge
-    +--> Evidence-Aware Judge
-    |
-    v
-Final Answer + Metrics + Raw JSONL
-```
-
-### 4.2. Các role trong hệ thống
-
-| Role | Trách nhiệm |
-|---|---|
-| Solver | Chọn đáp án, viết rationale ngắn, liệt kê evidence và confidence |
-| Critic | Tìm lỗi logic, hiểu sai, giả định thiếu căn cứ và bằng chứng bị bỏ sót |
-| Skeptic | Thử bác bỏ kết luận, tìm phản ví dụ, cách hiểu khác và trường hợp biên |
-| Evidence Checker | Gắn nhãn claim là `SUPPORTED`, `UNSUPPORTED`, `CONTRADICTED` hoặc `UNCERTAIN` |
-| Judge | So sánh reasoning và evidence, chọn đáp án cuối, không chỉ đếm phiếu |
-
-Trong notebook có **5 loại role**. Cấu hình pilot mặc định tạo 3 Solver độc lập; ở Specialized Debate, mỗi vòng có thêm một Critic, một Skeptic và một Evidence Checker; Judge được gọi ở bước quyết định. Solver đồng thời đảm nhiệm bước Revision.
-
-### 4.3. Blind Judge
-
-Danh sách lời giải được xáo trộn bằng seed trước khi đưa cho Judge. Prompt không yêu cầu Judge ưu tiên agent theo tên hoặc thứ tự, đồng thời nhắc không đánh giá cao một lời giải chỉ vì nó dài hơn.
-
-### 4.4. Structured output
-
-Mọi role trả JSON. Ví dụ output Solver:
-
-```json
-{
-  "sample_id": "logiqa_001",
-  "agent_role": "solver",
-  "round": 0,
-  "answer": "B",
-  "rationale_summary": ["Điều kiện thứ nhất loại phương án A."],
-  "evidence": [
-    {
-      "claim": "Phương án A mâu thuẫn với điều kiện 1.",
-      "source": "đề bài",
-      "status": "SUPPORTED"
-    }
-  ],
-  "confidence": 0.78
-}
-```
-
-Pydantic kiểm tra nhãn đáp án, confidence, issue taxonomy, evidence status và kiểu dữ liệu. `sample_id`, `agent_role` và `round` được pipeline gán lại từ context để model không làm sai metadata của thí nghiệm.
-
-## 5. Phạm vi pilot trong notebook
-
-Notebook mặc định chạy `RUN_MODE = "pilot"` với cấu hình:
+Cấu hình thực nghiệm báo cáo đang hướng tới:
 
 | Thành phần | Giá trị |
 |---|---:|
-| Model | `gpt-4o-mini` |
 | Dataset | LogiQA và CommonsenseQA |
-| Split | Validation |
-| Số mẫu | 10 mẫu mỗi dataset, tổng 20 |
-| Seed chính | 42, 123, 2026 |
-| Solver mặc định | 3 |
-| Main debate rounds | 1 |
-| Self-Consistency | K=3 |
-| Fair-compute | K/N=10 |
-| Ablation subset | 4 mẫu mỗi dataset |
+| Mẫu mỗi dataset | 25 |
+| Tổng câu hỏi độc lập | 50 |
+| Seed | 42, 123, 2026 |
+| Số dự đoán cho mỗi phương pháp chính | 150 |
+| Self-Consistency | K=10 |
+| Majority Voting | N=10 |
+| Adaptive MAD-v2 | 10 protocol calls |
+| Ablation subset | 5 mẫu mỗi dataset |
 | Ablation seed | 42 |
-| Ablation rounds | 0, 1, 2, 3 |
-| Max output | 700 token mỗi response |
+| Debate rounds khảo sát | 0, 1, 2, 3 |
+| Model mặc định | `gpt-4o-mini` |
 
-Đây là **exploratory pilot**, không phải kết quả đại diện cho toàn bộ benchmark. Mẫu ít giúp kiểm soát chi phí nhưng làm khoảng tin cậy rộng và statistical power thấp.
+50 câu hỏi là quy mô giới hạn chi phí, không đại diện cho toàn bộ benchmark. Báo cáo phải nêu rõ hạn chế về statistical power và khoảng tin cậy.
 
-### Ước lượng model calls
+## 2. Pain Point Nghiên Cứu
 
-| Nhóm | Cách tính | Model calls khái niệm |
-|---|---:|---:|
-| Baseline | 20 mẫu x 3 seed x 28 calls | 1.680 |
-| Main Debate | 20 mẫu x 3 seed x 25 calls | 1.500 |
-| Ablation | 8 mẫu x 223 calls | 1.784 |
-| **Tổng tối đa trước retry** | | **4.964** |
+### 2.1. Majority Voting không đánh giá bằng chứng
 
-Response cache tái sử dụng các request trùng nhau nên số request API thực tế có thể thấp hơn. Schema retry hoặc API retry có thể làm số request tăng. Chi phí thực phải đọc từ `input_tokens`, `output_tokens` và `total_tokens`, không suy ra chỉ từ số calls.
+Majority Voting chỉ đếm nhãn đáp án. Nhiều agent có thể cùng mắc một lỗi tương quan, trong khi một agent thiểu số lại có lập luận đúng và bằng chứng tốt hơn.
 
-## 6. Các phương pháp được triển khai
+### 2.2. Nhiều câu trả lời chưa chắc tạo reasoning diversity
 
-### Baseline
+Các reasoning trace có thể khác cách diễn đạt nhưng vẫn dùng cùng một chiến lược hoặc shortcut. Vì vậy dự án đo riêng:
 
-| Method trong output | Ý nghĩa |
+- Answer Disagreement Rate.
+- Semantic Reasoning Diversity.
+- Quan hệ giữa diversity và correctness.
+
+### 2.3. Debate có thể sửa đúng hoặc làm hỏng đáp án
+
+Trao đổi giữa agent có thể phát hiện lỗi, nhưng cũng có thể gây majority pressure, sycophancy, conformity, error propagation và Judge bias. Hệ thống phải đo cả:
+
+- Successful Correction: sai trước debate, đúng sau debate.
+- Harmful Revision: đúng trước debate, sai sau debate.
+- Resistant Error: sai trước và vẫn sai sau debate.
+- Minority-Correct Case: agent thiểu số đúng nhưng quyết định cuối có chọn được hay không.
+
+### 2.4. So sánh không công bằng về compute
+
+Không thể quy lợi ích cho debate nếu MAD dùng nhiều call hơn đáng kể. So sánh chính dùng:
+
+```text
+Self-Consistency K=10
+Majority Voting N=10
+Adaptive MAD-v2 B=10 protocol calls
+```
+
+Single Direct và Single CoT vẫn được giữ làm baseline tham chiếu một call, nhưng không được xem là fair-compute đối chứng trực tiếp của MAD.
+
+### 2.5. Output API có thể sai JSON hoặc bị cắt
+
+JSON mode không bảo đảm response hoàn tất nếu output chạm giới hạn token. Pipeline dùng Pydantic, schema retry, response cache và checkpoint JSONL. Một record chỉ được ghi sau khi toàn bộ method hoàn thành hợp lệ.
+
+## 3. Câu Hỏi Nghiên Cứu
+
+| Mã | Câu hỏi | Thí nghiệm | Chỉ số chính |
+|---|---|---|---|
+| RQ1 | MAD có tạo reasoning diversity cao hơn SC và MV không? | So sánh reasoning trace của các phương pháp | Disagreement, Semantic Diversity |
+| RQ2 | MAD có tốt hơn MV khi cùng inference budget không? | SC-10, MV-10 và MAD-10 | Accuracy, token, latency, Accuracy/1.000 token |
+| RQ3 | Số vòng debate ảnh hưởng thế nào? | Rounds 0, 1, 2, 3 | Accuracy, correction, degradation, cost |
+| RQ4 | Role specialization có lợi không? | Homogeneous, specialized và remove-one-role | Accuracy, behavior, cost |
+| RQ5 | MAD thất bại trong trường hợp nào? | Behavioral và error analysis | Correction, degradation, resistant error, Judge error |
+
+## 4. Phương Pháp MAD-v2
+
+### 4.1. Luồng chính
+
+```text
+Input Question
+      |
+      v
+6 Independent Solver Responses
+      |
+      v
+Majority Answer + Consensus Gate
+      |
+      +-------------------------------+
+      |                               |
+Consensus >= 5/6                Consensus < 5/6
+      |                               |
+4 Solver bổ sung                Critic
+      |                               |
+Majority Voting N=10            Evidence Checker
+                                      |
+                                  Revision
+                                      |
+                                  Blind Judge
+                                      |
+                              Change Authorization Gate
+      |                               |
+      +---------------+---------------+
+                      |
+                      v
+            Final Answer + Raw JSONL
+```
+
+Hai nhánh đều có đúng 10 `protocol_calls`:
+
+- Nhánh đồng thuận mạnh: 6 Solver ban đầu + 4 Solver bổ sung.
+- Nhánh bất đồng: 6 Solver ban đầu + Critic + Evidence Checker + Revision + Judge.
+
+### 4.2. Evidence-gated revision
+
+MAD-v2 mặc định bảo lưu majority answer ban đầu. Một đáp án mới chỉ được chấp nhận khi đồng thời thỏa các điều kiện:
+
+1. Judge đề xuất đáp án khác initial answer.
+2. Revision chọn cùng đáp án với Judge.
+3. Evidence Checker đặt `change_supported=true`.
+4. `recommended_answer` của Evidence Checker trùng đáp án mới.
+5. `support_level >= 0.75`.
+6. Có ít nhất một claim `SUPPORTED`.
+7. Critic phát hiện ít nhất một issue mức `HIGH`.
+
+Nếu thiếu bất kỳ điều kiện nào, hệ thống giữ initial majority answer. Cơ chế này giảm harmful revision nhưng có thể bỏ lỡ một minority-correct case, nên không được xem là bảo đảm MAD tốt hơn MV.
+
+### 4.3. Các role
+
+| Role | Trách nhiệm |
 |---|---|
-| `single_direct` | Một Solver, yêu cầu trả lời trực tiếp |
-| `single_cot` | Một Solver với structured rationale |
-| `self_consistency` | Ba reasoning path độc lập, chọn majority answer |
-| `multi_agent_majority` | Ba Solver độc lập, không xem reasoning của nhau |
-| `self_consistency_k10_call_matched` | Self-Consistency với 10 calls |
-| `multi_agent_majority_n10_call_matched` | Majority Voting với 10 agent calls |
+| Solver | Chọn answer, viết rationale ngắn, evidence và confidence |
+| Critic | Tìm lỗi logic, premise thiếu và giả định không có căn cứ |
+| Skeptic | Tìm phản ví dụ và cách hiểu thay thế trong fixed-round ablation |
+| Evidence Checker | Đối chiếu claim với đề bài và quyết định bằng chứng có đủ để đổi answer hay không |
+| Revision | Mặc định bảo lưu answer, chỉ sửa khi có bằng chứng cụ thể |
+| Blind Judge | So sánh candidate ẩn danh, không nhận gold answer |
 
-### Main Debate
+Trong adaptive MAD-v2 chính, chức năng skeptical được gộp vào Critic để giữ ngân sách 10 calls. Skeptic độc lập vẫn xuất hiện trong fixed-round ablation.
 
-| Method trong output | Calls dự kiến/mẫu | Ý nghĩa |
+## 5. Các Phương Pháp Được So Sánh
+
+| Method trong output | Calls/mẫu | Ý nghĩa |
 |---|---:|---|
-| `homogeneous_debate_r1_majority` | 6 | 3 Solver ban đầu + 3 Solver revision, quyết định bằng majority |
-| `specialized_debate_r1_majority` | 9 | Thêm Critic, Skeptic, Evidence Checker, quyết định bằng majority |
-| `specialized_debate_r1_judge` | 10 | Cùng transcript debate và thêm Blind Judge |
+| `single_direct_v2` | 1 | Trả lời trực tiếp, không rationale dài |
+| `single_cot_v2` | 1 | Một Solver với structured rationale |
+| `self_consistency_k10_v2` | 10 | Mười reasoning path, chọn majority answer |
+| `majority_voting_n10_v2` | 10 | Mười Solver độc lập, không giao tiếp |
+| `adaptive_mad_v2_max10` | 10 | MAD-v2 thích nghi với consensus gate và evidence gate |
 
-M2 và M3 dùng cùng communication protocol để tách ảnh hưởng của **cách trao đổi** khỏi ảnh hưởng của **cách quyết định**.
+Ablation gồm bốn nhóm:
 
-### Ablation
+- Rounds: 0, 1, 2, 3.
+- Role specialization: homogeneous và specialized.
+- Remove-one-role: full, no Critic, no Skeptic, no Evidence Checker, no Judge.
+- Decision protocol: majority, judge và evidence-aware judge.
 
-Notebook chạy bốn nhóm ablation trên subset cố định:
+Ablation chỉ chạy trên 10 câu hỏi và một seed. Không gộp kết quả ablation với main holdout.
 
-- Rounds: 0, 1, 2 và 3.
-- Remove-one-role: full, không Critic, không Skeptic, không Evidence Checker, không Judge.
-- Decision protocol: Majority, Judge và Evidence-Aware Judge.
-- Number of Solver agents: 2, 3 và 5.
+## 6. Cấu Hình Trước Khi Chạy Kaggle
 
-## 7. Cách chạy trên Kaggle
+Trong cell cấu hình của notebook, kiểm tra các trường sau:
+
+```python
+RUN_MODE = "report"
+
+CFG = {
+    # Các trường khác giữ nguyên.
+    "sample_size_per_dataset": 25,
+    "seeds": [42, 123, 2026],
+    "fair_compute_k": 10,
+    "initial_pool_size": 6,
+    "schema_attempts": 4,
+    "max_output_tokens": {
+        "direct": 180,
+        "solver": 600,
+        "critic": 500,
+        "skeptic": 500,
+        "evidence_checker": 600,
+        "revision": 600,
+        "judge": 350,
+    },
+    "resume": True,
+    "overwrite": False,
+    "output_dir": "/kaggle/working/mad_v2_report_25x2_real",
+}
+```
+
+Đây là phần minh họa các trường cần kiểm tra, không phải dictionary đầy đủ để thay nguyên cell. Giữ lại các trường dataset, temperature, threshold, ablation và embedding đang có trong notebook.
+
+Nên giới hạn prompt Solver và Revision:
+
+```text
+Tối đa 3 mục rationale_summary và 3 evidence.
+Mỗi mục không quá 25 từ.
+```
+
+Tăng `max_output_tokens` chỉ tăng giới hạn tối đa. API tính theo token thực tế sinh ra, nhưng response dài hơn vẫn có thể làm tăng chi phí và latency.
+
+Không đổi model, prompt, token limit, threshold hoặc sample size giữa một run đang chạy. Các trường này tham gia cache key và có thể làm mất khả năng tái sử dụng response cũ.
+
+## 7. Chạy Trên Kaggle
 
 ### Bước 1: Upload notebook
 
-Tạo Kaggle Notebook mới và import [`KAGGLE_PILOT_PIPELINE.ipynb`](KAGGLE_PILOT_PIPELINE.ipynb).
+Tạo Kaggle Notebook và import [`KAGGLE_MAD_V2_REPORT_EXPERIMENT.ipynb`](KAGGLE_MAD_V2_REPORT_EXPERIMENT.ipynb).
+
+Không dùng `KAGGLE_PILOT_PIPELINE.ipynb` để tạo kết quả chính của báo cáo.
 
 ### Bước 2: Bật Internet
 
-Mở **Notebook settings** và bật **Internet**. Internet cần cho ba việc: cài package, tải dataset từ Hugging Face và gọi OpenAI API.
+Trong **Notebook settings**, bật **Internet**. Internet cần để cài package, tải dataset/embedding model và gọi OpenAI API.
 
 ### Bước 3: Tạo Kaggle Secret
 
-Mở **Add-ons -> Secrets**, tạo secret:
+Trong **Add-ons > Secrets**, tạo:
 
 ```text
 Name: OPENAI_API_KEY
 Value: <API key của bạn>
 ```
 
-Bật quyền truy cập secret cho notebook. Không ghi key trực tiếp vào cell, output, Git hoặc ảnh chụp màn hình. Nếu key đã từng bị công khai, hãy thu hồi key cũ và tạo key mới.
+Bật quyền truy cập secret cho notebook. Không ghi API key trực tiếp vào code, output, log, ảnh chụp hoặc Git. Nếu một key từng bị công khai, phải thu hồi key cũ và tạo key mới.
 
-### Bước 4: Chọn chế độ chạy
+### Bước 4: Chạy smoke trước
 
-Trong cell cấu hình:
-
-```python
-RUN_MODE = "pilot"
-```
-
-`pilot` gọi API thật với cấu hình trong Bảng phạm vi pilot. Để kiểm tra nhanh kết nối trước, có thể đổi thành:
+Đặt:
 
 ```python
 RUN_MODE = "smoke"
 ```
 
-`smoke` cũng gọi API thật, không phải mock; nó chỉ giảm số mẫu, seed, agent và ablation.
+Chọn **Run All** để kiểm tra package, dataset, API, JSON schema và ZIP output. Smoke vẫn gọi API thật nhưng chỉ dùng một mẫu mỗi dataset, một seed và ablation tối thiểu. Không dùng smoke làm kết quả nghiên cứu.
 
-### Bước 5: Chạy
+### Bước 5: Chạy report
 
-Chọn **Run All**. Không cần upload repository, YAML, prompt hoặc dataset thủ công.
+Sau khi smoke hoàn tất, đổi lại:
 
-### Bước 6: Tải kết quả
-
-Cell cuối tạo file:
-
-```text
-/kaggle/working/mad_pilot_real_results.zip
+```python
+RUN_MODE = "report"
 ```
 
-Mở panel **Output/Files** của Kaggle và tải ZIP về. Chỉ dùng kết quả trong báo cáo khi các cell baseline, debate, ablation, evaluation và integrity check đều hoàn tất.
+Kiểm tra cấu hình 25 mẫu mỗi dataset và dùng output directory mới. Sau đó chọn **Restart Session and Run All**.
 
-## 8. Giải thích từng cell trong notebook
-
-### Cell 0 - Mô tả pilot
-
-Giới thiệu phạm vi, yêu cầu Kaggle Secret, quy mô thí nghiệm và cảnh báo rằng pilot không đại diện cho toàn benchmark.
-
-### Cell 1 - Cài dependency
-
-Cài `openai`, `datasets`, `pydantic`, `pandas`, `numpy`, `scipy`, `scikit-learn`, `matplotlib`, `sentence-transformers` và `tabulate`. Nếu Kaggle yêu cầu restart session sau khi đổi package, restart rồi chạy lại từ đầu.
-
-### Cell 2 - Import và đọc API key
-
-`UserSecretsClient().get_secret("OPENAI_API_KEY")` đọc key từ Kaggle Secrets. Nếu code chạy ngoài Kaggle, notebook dùng `getpass` để nhập key ẩn. Giá trị key không được in và bị xóa khỏi biến cục bộ sau khi khởi tạo biến môi trường.
-
-### Cell 3 - Cấu hình
-
-Dictionary `CFG` chứa model, temperature, retry, dataset, seed, sample size, số agent, số vòng, embedding model và thư mục output. Mọi tham số chính được đặt tập trung tại đây thay vì rải hard-code trong protocol.
-
-`resume=True` cho phép bỏ qua prediction đã có. `overwrite=False` ngăn ghi đè kết quả cũ. `run_manifest.json` lưu cấu hình nhưng loại mọi field có tên chứa `key`.
-
-### Cell 4 - Pydantic JSON contracts
-
-Các class chính:
-
-- `EvidenceItem`: claim, source và evidence status.
-- `SolverOutput`: answer, rationale, evidence, confidence và reasoning ID.
-- `Issue`: một lỗi thuộc taxonomy nghiên cứu.
-- `CritiqueOutput`: output cho Critic và Skeptic.
-- `EvidenceCheckerOutput`: kết quả kiểm tra bằng chứng.
-- `JudgeOutput`: đáp án cuối, reasoning được chọn, lý do và confidence.
-
-Validator chuẩn hóa enum, severity, role, list/string và chỉ chấp nhận đáp án A-E. Output sai schema được gửi lại tối đa theo `schema_attempts`.
-
-### Cell 5 - Prompt, OpenAI client, cache và retry
-
-`PROMPTS` chứa system prompt tiếng Việt cho từng role.
-
-`complete_json()` thực hiện một model call với `response_format={"type": "json_object"}`. Hàm tạo SHA-256 cache key từ model, prompt, role, temperature, seed và token limit. Response mới được append vào `response_cache.jsonl`.
-
-`parse_json_object()` thử parse toàn bộ response; nếu model bọc JSON trong văn bản, hàm thử trích object từ dấu `{` đầu đến `}` cuối.
-
-`run_agent()` gọi model, cộng token/latency, kiểm tra Pydantic schema và retry nếu JSON không hợp lệ. Pipeline gán lại metadata cấu trúc trước validation.
-
-### Cell 6 - Dataset preparation
-
-`load_hf()` tải LogiQA và CommonsenseQA. Nếu Hugging Face không còn hỗ trợ dataset script, hàm fallback sang parquet conversion.
-
-`canonicalize()` đưa hai schema khác nhau về một dạng chung:
+### Bước 6: Theo dõi các stage
 
 ```text
-sample_id, dataset, context, question, choices, answer, source_index
+Dataset preparation
+      -> Baselines
+      -> Adaptive MAD-v2
+      -> Ablations
+      -> Evaluation
+      -> Integrity check
+      -> Final ZIP
 ```
 
-Các mẫu được shuffle bằng seed 42, lấy đúng số lượng cấu hình và lưu vào:
+Checkpoint ZIP được tạo sau baseline, MAD và ablation. Tải checkpoint sau mỗi stage dài hoặc dùng **Save Version** để tránh mất dữ liệu khi Kaggle kết thúc session.
 
-```text
-processed/samples.jsonl
-processed/sample_ids.json
-```
+## 8. Quy Mô Run 25+25 Mẫu
 
-Danh sách ID đã khóa giúp lần chạy sau dùng đúng subset.
+| Stage | Cách tính | Prediction records |
+|---|---:|---:|
+| Baseline | 50 câu × 3 seed × 4 method | 600 |
+| Adaptive MAD-v2 | 50 câu × 3 seed | 150 |
+| Ablation | 10 câu × 1 seed × 14 cấu hình | 140 |
+| **Tổng** | | **890** |
 
-### Cell 7 - Protocol và record
+Số `protocol_calls` danh nghĩa trước retry:
 
-Các hàm quan trọng:
+| Stage | Protocol calls |
+|---|---:|
+| Baseline | 3.300 |
+| Adaptive MAD-v2 | 1.500 |
+| Ablation | khoảng 1.440 |
+| **Tổng** | **khoảng 6.240** |
 
-| Hàm | Chức năng |
-|---|---|
-| `norm_answer()` | Chuẩn hóa nhãn đáp án |
-| `majority_vote()` | Đếm phiếu và trả consensus score |
-| `make_record()` | Tạo record chung gồm correctness, calls, token, latency, traces và raw output |
-| `run_single()` | Chạy Single Direct hoặc Single CoT |
-| `run_independent_vote()` | Chạy Self-Consistency hoặc Multi-Agent Majority |
-| `debate_one()` | Điều phối Solver, role phản biện, revision và decision protocol |
-| `checkpoint_keys()` | Đọc các khóa đã hoàn thành từ JSONL |
-| `append_record()` | Append và flush từng prediction ngay sau khi hoàn tất |
+Số request API thực tế có thể thấp hơn vì MV và MAD dùng chung Solver response qua cache. Schema retry có thể làm số model call và token tăng. Luôn đọc chi phí thật từ output thay vì suy ra chỉ từ giới hạn token.
 
-`debate_one()` lưu riêng initial answer, initial correctness, initial consensus và initial disagreement. Đây là cơ sở tính Correction/Degradation đúng theo trạng thái **trước và sau debate**, không dùng một baseline khác làm trạng thái ban đầu.
+## 9. Ý Nghĩa Từng Cell
 
-Confidence được gắn loại rõ ràng:
+| Cell | Chức năng |
+|---:|---|
+| 0 | Mô tả phạm vi và nguyên tắc trung thực nghiên cứu |
+| 1 | Cài dependency |
+| 2 | Import thư viện và đọc `OPENAI_API_KEY` từ Kaggle Secret |
+| 3 | Cấu hình, khóa holdout và tạo `run_manifest.json` |
+| 4 | Pydantic schema, prompt, OpenAI client, retry và response cache |
+| 5 | Tải, chuẩn hóa và khóa sample ID |
+| 6 | Baseline, adaptive MAD-v2, fixed-round ablation và checkpoint helpers |
+| 7 | Chạy bốn baseline |
+| 8 | Chạy Adaptive MAD-v2 |
+| 9 | Chạy targeted ablations |
+| 10 | Tính metric, kiểm định, behavioral analysis và sinh bảng/hình |
+| 11 | Integrity check và đóng gói ZIP |
+| 12 | Ghi chú cách sử dụng output |
 
-- `self_reported_solver` cho Single Agent.
-- `consensus_score` cho Majority Voting.
-- `self_reported_judge` cho Judge.
+### Cell baseline
 
-Consensus score không được diễn giải như xác suất đúng.
+Mỗi record có khóa `(seed, sample_id, method)`. Khi `resume=True`, record đã hoàn thành được bỏ qua. Một method chỉ được append sau khi tất cả model call của method đó hợp lệ.
 
-### Cell 8 - Chạy baseline thật
+### Cell Adaptive MAD-v2
 
-Vòng lặp chạy 20 mẫu x 3 seed cho sáu cấu hình baseline. Mỗi record dùng khóa `(seed, sample_id, method)`; nếu khóa đã có và `resume=True`, notebook bỏ qua để tránh gọi API lại.
+MAD đọc lại shared Solver responses từ cache của Majority Voting khi cache key giống nhau. Record lưu `route`, `initial_answer`, `initial_consensus`, `proposed_answer`, `change_authorized`, token và latency.
 
-### Cell 9 - Chạy main debate thật
+### Cell evaluation
 
-Chạy Homogeneous Debate + Majority, Specialized Debate + Majority và Specialized Debate + Judge. Transcript dùng chung được response cache tái sử dụng khi request giống nhau.
+Cell này không gọi OpenAI API. Nó tạo:
 
-### Cell 10 - Chạy ablation thật
-
-Chọn bốn mẫu đầu đã khóa của mỗi dataset và chạy ablation rounds, roles, decision protocol và số agent. Ablation chỉ dùng seed 42 để giới hạn chi phí; giới hạn này phải được nêu trong báo cáo.
-
-### Cell 11 - Evaluation
-
-Cell này không gọi OpenAI API. Nó đọc ba file prediction và sinh bảng/biểu đồ.
-
-Các nhóm tính toán gồm:
-
-- Accuracy theo dataset, method và seed.
-- Mean/std qua seed và bootstrap 95% CI theo sample.
-- Input/output/total token, model calls và latency mean/median/P95.
-- Answer Disagreement Rate.
-- Semantic Reasoning Diversity.
+- Accuracy, bootstrap 95% CI và mean/std qua seed.
+- Token, protocol/model/schema-retry calls và latency.
+- Brier Score và Expected Calibration Error.
+- Semantic Reasoning Diversity và Answer Disagreement.
 - Correction Rate và Degradation Rate.
-- Brier Score, ECE và reliability diagram.
-- McNemar exact test và win/loss/tie theo seed.
-- Fair-compute call-matched và post-hoc nearest token budget.
-- Behavioral cases và agent-reported error taxonomy.
+- Paired MAD-vs-MV, McNemar và win/loss/tie.
+- Behavioral cases và file chờ manual error annotation.
 
-Semantic diversity dùng model cố định:
+## 10. Output Quan Trọng
 
 ```text
-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-```
-
-Nếu model embedding không tải được, code fallback sang TF-IDF và ghi backend thật vào `embedding_metadata.json`. Không được trình bày kết quả fallback như embedding semantic mà không ghi chú.
-
-Error taxonomy từ Critic/Skeptic được lưu dưới nhãn **agent-reported**. Các prediction sai của mọi phương pháp được xuất sang `error_cases_for_manual_annotation.csv`; notebook không tự bịa nhãn lỗi cho baseline khi không có bằng chứng.
-
-### Cell 12 - Integrity check và đóng gói
-
-Kiểm tra ba file raw chính tồn tại và có record. Sau đó notebook quét toàn bộ output bằng regex để chắc chắn không có chuỗi giống OpenAI API key.
-
-Cuối cùng `shutil.make_archive()` đóng gói thư mục kết quả thành ZIP.
-
-### Cell 13 - Ghi chú trung thực nghiên cứu
-
-Nhắc lại giới hạn về sample size, statistical power, fair-compute và cách diễn giải diversity/confidence.
-
-## 9. Chỉ số đánh giá
-
-### Accuracy
-
-$$
-\text{Accuracy}
-=
-\frac{\text{Số dự đoán đúng}}
-{\text{Tổng số dự đoán}}
-$$
-
-### Correction Rate
-
-$$
-\text{Correction Rate}
-=
-\frac{\text{Sai trước debate và đúng sau debate}}
-{\text{Tổng số mẫu sai trước debate}}
-$$
-
-### Degradation Rate
-
-$$
-\text{Degradation Rate}
-=
-\frac{\text{Đúng trước debate và sai sau debate}}
-{\text{Tổng số mẫu đúng trước debate}}
-$$
-
-### Answer Disagreement Rate
-
-$$
-\text{Disagreement Rate}
-=
-\frac{\text{Mẫu có ít nhất hai đáp án ban đầu khác nhau}}
-{\text{Tổng số mẫu}}
-$$
-
-### Semantic Reasoning Diversity
-
-Với các vector reasoning đã chuẩn hóa:
-
-$$
-\text{Semantic Diversity}
-=
-1-
-\frac{1}{\binom{n}{2}}
-\sum_{i<j}\cos(\mathbf{e}_i,\mathbf{e}_j)
-$$
-
-Diversity cao chỉ cho biết các trace khác nhau hơn về biểu diễn; nó không chứng minh trace đúng hơn.
-
-## 10. Cấu trúc output của notebook
-
-```text
-mad_pilot_real/
+mad_v2_report_25x2_real/
 ├── run_manifest.json
 ├── raw/
 │   ├── response_cache.jsonl
-│   ├── baselines.jsonl
-│   ├── debate.jsonl
-│   └── ablations.jsonl
+│   ├── baselines_v2.jsonl
+│   ├── adaptive_mad_v2.jsonl
+│   └── ablations_v2.jsonl
 ├── processed/
 │   ├── samples.jsonl
 │   ├── sample_ids.json
-│   ├── predictions.csv
-│   ├── embedding_metadata.json
-│   ├── behavioral_cases.jsonl
-│   └── error_cases_for_manual_annotation.csv
+│   ├── predictions_v2.csv
+│   ├── behavioral_cases_v2.jsonl
+│   ├── error_cases_for_manual_annotation_v2.csv
+│   └── embedding_metadata.json
 ├── tables/
-│   ├── main_results.csv
-│   ├── per_seed_results.csv
-│   ├── ablation_results.csv
-│   ├── fair_compute_comparison.csv
-│   ├── reasoning_diversity.csv
-│   ├── diversity_accuracy_correlation.csv
-│   ├── correction_degradation.csv
-│   ├── mcnemar_win_loss_tie.csv
-│   ├── behavioral_summary.csv
-│   └── error_taxonomy_agent_reported.csv
-└── figures/
-    ├── accuracy_<dataset>.png
-    ├── mean_total_tokens_<dataset>.png
-    └── reliability_<dataset>.png
+│   ├── main_results_v2.csv
+│   ├── ablation_results_v2.csv
+│   ├── paired_mad_vs_mv.csv
+│   ├── reasoning_diversity_v2.csv
+│   ├── answer_disagreement_v2.csv
+│   └── correction_degradation_v2.csv
+├── figures/
+│   └── accuracy_v2_<dataset>.png
+└── integrity_summary.json
 ```
 
-### File cần dùng cho báo cáo
-
-| Nội dung báo cáo | File nguồn |
+| Nội dung | File nguồn |
 |---|---|
-| Kết quả tổng thể | `tables/main_results.csv` |
-| Mean/std qua seed | `tables/per_seed_results.csv` |
-| Fair-compute | `tables/fair_compute_comparison.csv` |
-| Rounds/roles/decision/agents | `tables/ablation_results.csv` |
-| Correction/Degradation | `tables/correction_degradation.csv` |
-| Reasoning diversity | `tables/reasoning_diversity.csv` |
-| Calibration | `main_results.csv` và `figures/reliability_*.png` |
-| Statistical test | `tables/mcnemar_win_loss_tie.csv` |
-| Behavioral cases | `processed/behavioral_cases.jsonl` |
-| Error analysis | `tables/error_taxonomy_agent_reported.csv` và file manual annotation |
+| Kết quả phương pháp chính | `tables/main_results_v2.csv` |
+| Fair-compute MAD-vs-MV | `tables/paired_mad_vs_mv.csv` |
+| Ablation | `tables/ablation_results_v2.csv` |
+| Reasoning diversity | `tables/reasoning_diversity_v2.csv` |
+| Answer disagreement | `tables/answer_disagreement_v2.csv` |
+| Correction/Degradation | `tables/correction_degradation_v2.csv` |
+| Behavioral analysis | `processed/behavioral_cases_v2.jsonl` |
+| Manual error analysis | `processed/error_cases_for_manual_annotation_v2.csv` |
+| Kiểm tra tính đầy đủ | `integrity_summary.json` |
 
-## 11. Resume, cache và chống ghi đè
+Chỉ sử dụng output khi integrity check hoàn tất. Không điền số liệu vào báo cáo từ progress log hoặc một stage chưa đủ record.
 
-`response_cache.jsonl` lưu response theo hash của request. Các file prediction được append từng dòng, vì vậy kết quả đã hoàn thành vẫn còn nếu một cell bị dừng giữa chừng.
+## 11. Resume Và Checkpoint
 
-Khi chạy lại trong cùng môi trường còn thư mục output:
+Giữ cấu hình:
 
 ```python
 "resume": True,
 "overwrite": False,
 ```
 
-Notebook sẽ bỏ qua các record hoàn tất. Nếu tạo Kaggle session hoàn toàn mới và `/kaggle/working` đã bị xóa, cần khôi phục output cũ trước thì resume mới có tác dụng. Hãy tải ZIP hoặc Save Version để bảo toàn kết quả sau phiên chạy.
+Nếu cell dừng giữa chừng, chạy lại chính cell đó. Notebook đọc JSONL và bỏ qua các khóa đã hoàn thành.
 
-Không đặt đồng thời `overwrite=True` nếu muốn tiếp tục checkpoint cũ.
+Resume chỉ hoạt động khi thư mục output cũ vẫn tồn tại. `/kaggle/working` có thể bị xóa khi session kết thúc, vì vậy cần tải checkpoint ZIP hoặc Save Version.
 
-## 12. Xử lý lỗi thường gặp
+Không dùng cùng output directory cho hai cấu hình sample size khác nhau. Ví dụ, kết quả 100 câu hỏi và 50 câu hỏi phải nằm trong hai thư mục riêng.
 
-### Không đọc được API key
+## 12. Xử Lý Lỗi Thường Gặp
 
-Kiểm tra secret có đúng tên `OPENAI_API_KEY` và đã được bật quyền cho notebook hay chưa. Không sửa code để in key ra kiểm tra.
+### 12.1. `Invalid solver output after schema retry`
 
-### Không tải được dataset hoặc embedding model
+Ví dụ:
 
-Kiểm tra Internet của Kaggle. Dataset loader có parquet fallback; embedding có TF-IDF fallback và ghi lại backend.
-
-### Rate limit hoặc lỗi mạng
-
-`complete_json()` retry có giới hạn và tăng thời gian chờ theo số lần thử. Chờ quota khả dụng rồi chạy lại cell; cache/checkpoint sẽ bỏ qua phần đã hoàn thành.
-
-### JSON validation error
-
-Pipeline tự gửi format correction theo `schema_attempts`. Nếu vẫn thất bại, exception dừng cell để tránh âm thầm ghi một record sai.
-
-### Không tạo được ZIP
-
-Cell integrity yêu cầu `baselines.jsonl`, `debate.jsonl` và `ablations.jsonl` đều có dữ liệu. Xem cell nào dừng lỗi, chạy lại cell đó rồi chạy lại evaluation và đóng gói.
-
-### Kaggle hết thời gian phiên
-
-Pilot có hàng nghìn model calls và có thể mất nhiều giờ. Chạy smoke thật trước để kiểm tra key/schema. Với pilot, theo dõi progress log và lưu version/output định kỳ theo khả năng của phiên Kaggle.
-
-## 13. Repository và notebook standalone
-
-Repository vẫn chứa pipeline module hóa trong `src/`, `scripts/`, `configs/` và `tests/`. Cách đó phù hợp khi phát triển local hoặc chạy main experiment lớn. Notebook standalone đóng gói lại các thành phần cốt lõi để thuận tiện chạy trên Kaggle.
-
-Hai cách chạy không nên ghi chung output rồi giả định chúng là cùng một experiment nếu config, sample IDs hoặc phiên bản prompt khác nhau. Luôn lưu `run_manifest.json`, raw JSONL và commit/notebook version tương ứng.
-
-Kiểm thử code repository:
-
-```bash
-pytest
+```text
+Expecting ',' delimiter
 ```
 
-Sinh lại notebook từ source builder:
+Đây là JSON sai cú pháp, thường do output bị cắt khi chạm token limit. Với một run mới, kiểm tra:
 
-```bash
-python scripts/build_kaggle_notebook.py
+```python
+CFG["schema_attempts"] = 4
+CFG["max_output_tokens"]["solver"] = 600
+CFG["max_output_tokens"]["revision"] = 600
 ```
 
-## 14. Nguyên tắc trung thực nghiên cứu
+Giữ rationale/evidence ngắn trong prompt. Sau đó chạy lại cell bị lỗi; checkpoint sẽ bỏ qua method đã hoàn thành.
 
-- Không điền số liệu giả vào báo cáo.
-- Không dùng smoke output làm main result.
-- Không gọi pilot 20 mẫu là kết quả toàn benchmark.
+Không đổi token limit giữa một run lớn đang chạy nếu vẫn cần tái sử dụng cache cũ, vì token limit tham gia cache key.
+
+### 12.2. Integrity báo `(599, 1200)`
+
+Điều này có nghĩa baseline chỉ có 599 record trong khi cấu hình cũ yêu cầu 1.200. Integrity check không phải nguyên nhân; nó chỉ phát hiện stage baseline chưa hoàn tất.
+
+Với thiết kế mới 25+25 mẫu, baseline hợp lệ phải có:
+
+```text
+50 × 3 × 4 = 600 records
+```
+
+Không được coi 599 record của thiết kế 100 câu hỏi là 599/600 của thiết kế 50 câu hỏi. Hai run có tập sample khác nhau và phải dùng output directory khác nhau.
+
+### 12.3. Đổi sample size nhưng vẫn thấy 100 mẫu
+
+Khi `resume=True`, cell dataset có thể đọc lại `processed/samples.jsonl` cũ. Cách an toàn là đặt `output_dir` mới và chạy lại từ đầu.
+
+### 12.4. Rate limit hoặc lỗi mạng
+
+API client retry với backoff hữu hạn. Khi quota khả dụng trở lại, chạy lại cell đang dừng. Không xóa JSONL đã hoàn thành.
+
+### 12.5. Không tải được dataset hoặc embedding
+
+Kiểm tra Internet. Dataset loader có parquet fallback. Nếu sentence-transformers không tải được, evaluation có thể dùng TF-IDF fallback và phải ghi rõ backend trong báo cáo.
+
+### 12.6. Integrity không tạo ZIP
+
+Kiểm tra lần lượt số record của baseline, MAD và ablation. Chỉ chạy lại evaluation/integrity sau khi ba raw JSONL đã đủ.
+
+## 13. Chạy Repository Cục Bộ
+
+Notebook Kaggle là pipeline báo cáo độc lập. Repository vẫn có implementation module hóa để phát triển và kiểm thử.
+
+```bash
+python -m venv .venv
+```
+
+Kích hoạt trên Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Cài dependency:
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Tạo `.env` từ `.env.example` và đặt API key cục bộ. `.env` đã được bỏ qua bởi Git và không được commit.
+
+Chạy test:
+
+```bash
+pytest -q
+```
+
+Sinh lại notebook:
+
+```bash
+python scripts/build_kaggle_mad_v2.py
+python scripts/build_kaggle_report_experiment.py
+```
+
+Workflow module hóa và từng câu lệnh chi tiết được giải thích trong [`GUIDE.md`](GUIDE.md).
+
+## 14. Báo Cáo
+
+Bản Word hiện tại: [`report/Bao_cao_Multi_Agent_Debate_Chuong_1_2.docx`](report/Bao_cao_Multi_Agent_Debate_Chuong_1_2.docx).
+
+Chương 1 và Chương 2 trình bày cơ sở lý thuyết và phương pháp. Chương 3-4 chỉ nên hoàn thiện sau khi ZIP kết quả thật vượt qua integrity check.
+
+Khi chuyển sang cấu hình 25 mẫu mỗi dataset, báo cáo phải ghi:
+
+- 50 câu hỏi độc lập, gồm 25 LogiQA và 25 CommonsenseQA.
+- 150 prediction cho mỗi phương pháp chính do lặp ba seed.
+- Ablation trên 10 câu hỏi và một seed.
+- Cỡ mẫu nhỏ là một threat to validity.
+- Không tuyên bố quan hệ nhân quả từ chênh lệch quan sát được.
+
+## 15. Nguyên Tắc Trung Thực Nghiên Cứu
+
+- Không tạo hoặc điền số liệu giả.
+- Không dùng smoke output làm kết quả chính.
+- Không điều chỉnh prompt hoặc threshold sau khi xem holdout rồi che giấu thay đổi.
 - Không đồng nhất consensus score với xác suất đúng.
-- Không đồng nhất reasoning diversity với reasoning correctness.
-- Không chỉ chọn case study có lợi cho Debate.
-- Phải báo cáo trường hợp Majority Voting tốt hơn Debate.
-- Phải nêu rõ khi semantic diversity dùng TF-IDF fallback.
-- Phải trình bày Accuracy cùng token, latency, CI và số mẫu.
-- Chỉ kết luận giả thuyết được hỗ trợ, hỗ trợ một phần hoặc không được hỗ trợ dựa trên output thật.
+- Không đồng nhất reasoning diversity với correctness.
+- Không chỉ chọn case study có lợi cho MAD.
+- Phải báo cáo trường hợp MV tốt hơn MAD.
+- Phải báo cáo token, latency, confidence interval và số câu hỏi độc lập cùng Accuracy.
+- Mỗi hypothesis phải được phân loại là được hỗ trợ, được hỗ trợ một phần hoặc không được hỗ trợ dựa trên dữ liệu thật.
+- Nếu lợi thế MAD biến mất sau khi kiểm soát compute, báo cáo phải nói rõ điều đó.
 
-Notebook tạo dữ liệu và bảng phục vụ Chương 3-4 của báo cáo. Nội dung thảo luận cuối cùng chỉ nên viết sau khi ZIP kết quả đã được kiểm tra đầy đủ.
+Mục tiêu của dự án là kiểm tra MAD một cách có thể bác bỏ và tái lập, không phải thiết kế một thí nghiệm buộc MAD phải thắng Majority Voting.
